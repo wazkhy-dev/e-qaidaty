@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* All Arabic-script text across the app (Materi, Bedah Kalimah, AI Tutor,
+     Quiz, Nahwu/Shorof examples, Wazan & Tashrif, Bahar Rojaz, etc.) uses
+     Traditional Arabic as its primary font, per project requirement. */
+  .font-arabic {
+    font-family: "Traditional Arabic", "Times New Roman", serif;
+    direction: rtl;
+    line-height: 1.6;
+  }
+
+  .font-arabic-clean {
+    font-family: "Traditional Arabic", "Times New Roman", serif;
+  }
+
+  /* Dedicated utility class for any Arabic-script text. Use alongside or
+     instead of .font-arabic on new components that display Arabic text. */
+  .arabic-text {
+    font-family: "Traditional Arabic", "Times New Roman", serif;
+    direction: rtl;
+    unicode-bidi: embed;
+  }
+}
+
+/* Glassmorphism custom classes */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.76);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 6px 24px 0 rgba(11, 42, 111, 0.04);
+}
+
+.glass-panel-subtle {
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+}
+
+.glass-card-hover {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.glass-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 36px 0 rgba(11, 42, 111, 0.08);
+  border-color: rgba(90, 169, 255, 0.4);
+}
+
+.glass-sidebar {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-right: 1px solid rgba(220, 238, 255, 0.7);
+}
+
+/* Mobile responsive utilities */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom subtle scrollbar for desktop */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(18, 63, 154, 0.15);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(18, 63, 154, 0.3);
+}
+
+

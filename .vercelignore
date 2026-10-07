@@ -1,0 +1,24 @@
+# Exclude source files (already compiled to dist/)
+src/
+server.ts
+vite.config.ts
+tsconfig.json
+tailwind.config.js
+
+# Exclude development files
+.kiro/
+.agents/
+.git/
+.gitignore
+
+# Exclude package manager lock files
+package-lock.json
+
+# Exclude environment files
+.env
+.env.local
+.env.*.local
+.env.example
+
+# Build artifacts
+dist/**/*.map

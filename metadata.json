@@ -1,0 +1,6 @@
+{
+  "name": "QAIDATY",
+  "description": "Platform Pembelajaran Kitab Qaidaty - Belajar Membaca Arab Gundul dengan Metode Qaidaty oleh Abi Yasin Muthohar",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
