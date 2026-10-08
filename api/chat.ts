@@ -18,6 +18,7 @@ function getOpenRouter(): OpenAI | null {
       defaultHeaders: {
         'HTTP-Referer': 'https://e-qaidaty.vercel.app',
         'X-Title': 'e-Qaidaty AI Tutor',
+        'Authorization': `Bearer ${apiKey.trim()}`,
       },
     });
   }

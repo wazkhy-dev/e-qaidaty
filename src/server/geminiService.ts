@@ -34,6 +34,7 @@ export async function processBedahKalimah(text: string) {
         defaultHeaders: {
           'HTTP-Referer': 'https://e-qaidaty.vercel.app',
           'X-Title': 'e-Qaidaty AI Tutor',
+          'Authorization': `Bearer ${apiKey.trim()}`,
         },
       });
       const model = (process.env.OPENROUTER_MODEL?.trim()) || 'google/gemini-2.5-flash';
@@ -88,6 +89,7 @@ export async function processTeacherSummary(lessonId: string, topicTitle?: strin
         defaultHeaders: {
           'HTTP-Referer': 'https://e-qaidaty.vercel.app',
           'X-Title': 'e-Qaidaty AI Tutor',
+          'Authorization': `Bearer ${apiKey.trim()}`,
         },
       });
       const model = (process.env.OPENROUTER_MODEL?.trim()) || 'google/gemini-2.5-flash';
