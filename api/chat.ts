@@ -1,70 +1,96 @@
 import { QAIDATY_KNOWLEDGE_CHUNKS, QaidatyChunk } from '../src/data/qaidatyKnowledge.js';
+import https from 'https';
 
 // ============================================================================
-// OPENROUTER DIRECT API CALL (RAW FETCH)
+// OPENROUTER DIRECT HTTPS CALL
 // ============================================================================
 
-async function callOpenRouter(
+function callOpenRouterViaHTTPS(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
-  temperature = 0.2
-): Promise<{ text: string | null; usedModel?: string; durationMs: number }> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  console.log(`[Qaidaty API] DEBUG - apiKey exists: ${!!apiKey}, length: ${apiKey?.length || 0}`);
-  
-  if (!apiKey || !apiKey.trim()) {
-    console.error('[Qaidaty API] OPENROUTER_API_KEY is not configured');
-    return { text: null, durationMs: 0 };
-  }
+  model: string,
+  temperature: number
+): Promise<{ text: string | null; durationMs: number }> {
+  return new Promise((resolve) => {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    const startT = Date.now();
 
-  const model = (process.env.OPENROUTER_MODEL?.trim()) || 'google/gemini-2.5-flash';
-  const startT = Date.now();
-  const MAX_TIMEOUT = 55000; // 55s for Vercel (function timeout is 60s)
+    console.log(`[Qaidaty API] Calling OpenRouter via HTTPS with model: ${model}, apiKey length: ${apiKey?.length || 0}`);
 
-  try {
-    const authHeader = `Bearer ${apiKey.trim()}`;
-    console.log(`[Qaidaty API] Calling OpenRouter with model: ${model}, auth header length: ${authHeader.length}`);
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), MAX_TIMEOUT);
+    if (!apiKey) {
+      console.error('[Qaidaty API] No API key');
+      return resolve({ text: null, durationMs: Date.now() - startT });
+    }
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const payload = JSON.stringify({
+      model,
+      messages,
+      temperature,
+      max_tokens: 1024,
+    });
+
+    const options = {
+      hostname: 'openrouter.ai',
+      port: 443,
+      path: '/api/v1/chat/completions',
       method: 'POST',
       headers: {
-        'Authorization': authHeader,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
         'HTTP-Referer': 'https://e-qaidaty.vercel.app',
         'X-Title': 'e-Qaidaty AI Tutor',
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature,
-        max_tokens: 1024,
-      }),
-      signal: controller.signal,
+      timeout: 55000,
+    };
+
+    console.log(`[Qaidaty API] HTTPS headers:`, {
+      'Authorization': `Bearer ${apiKey.substring(0, 10)}...`,
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload),
     });
 
-    clearTimeout(timeoutId);
+    const req = https.request(options, (res) => {
+      let data = '';
 
-    const data = await response.json();
-    
-    if (!response.ok) {
-      console.error(`[Qaidaty API] OpenRouter HTTP ${response.status}:`, data);
-      return { text: null, durationMs: Date.now() - startT };
-    }
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
 
-    const text = data.choices?.[0]?.message?.content;
-    if (text && text.trim().length > 0) {
-      console.log(`[Qaidaty API] OpenRouter success (${Date.now() - startT}ms)`);
-      return { text: text.trim(), usedModel: model, durationMs: Date.now() - startT };
-    }
-  } catch (err: any) {
-    console.error(`[Qaidaty API] OpenRouter call FAILED (${Date.now() - startT}ms):`, {
-      message: err?.message,
-      name: err?.name,
+      res.on('end', () => {
+        console.log(`[Qaidaty API] OpenRouter response status: ${res.statusCode}`);
+        if (res.statusCode !== 200) {
+          console.error(`[Qaidaty API] OpenRouter error (${res.statusCode}):`, data);
+          return resolve({ text: null, durationMs: Date.now() - startT });
+        }
+
+        try {
+          const json = JSON.parse(data);
+          const text = json.choices?.[0]?.message?.content;
+          if (text) {
+            console.log(`[Qaidaty API] Success: got response (${Date.now() - startT}ms)`);
+            return resolve({ text: text.trim(), durationMs: Date.now() - startT });
+          }
+        } catch (err) {
+          console.error('[Qaidaty API] Failed to parse JSON:', err);
+        }
+        resolve({ text: null, durationMs: Date.now() - startT });
+      });
     });
-  }
-  return { text: null, durationMs: Date.now() - startT };
+
+    req.on('error', (err) => {
+      console.error('[Qaidaty API] HTTPS request error:', err.message);
+      resolve({ text: null, durationMs: Date.now() - startT });
+    });
+
+    req.on('timeout', () => {
+      console.error('[Qaidaty API] HTTPS request timeout');
+      req.destroy();
+      resolve({ text: null, durationMs: Date.now() - startT });
+    });
+
+    req.write(payload);
+    req.end();
+  });
 }
 
 // ============================================================================
@@ -262,6 +288,9 @@ export async function handleChatPayload(payload: {
     };
   }
   console.log(`[Qaidaty API] OPENROUTER_API_KEY is configured, proceeding...`);
+  
+  const model = (process.env.OPENROUTER_MODEL?.trim()) || 'google/gemini-2.5-flash';
+  console.log(`[Qaidaty API] Using model: ${model}`);
 
   // 1. RAG context selection with smart intent filter — searches the FULL
   // Bab 01–23 knowledge base every time; never assumes Bab 01 as a default.
@@ -373,7 +402,7 @@ PANDUAN MERESPONS:
   // Add the current user message
   openAIMessages.push({ role: 'user', content: message.trim() });
 
-  const result = await callOpenRouter(openAIMessages, 0.15);
+  const result = await callOpenRouterViaHTTPS(openAIMessages, model, 0.15);
   const totalDuration = Date.now() - startTime;
 
   console.log(

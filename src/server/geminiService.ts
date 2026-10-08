@@ -1,50 +1,78 @@
 import { handleChatPayload } from '../../api/chat.js';
 import { parseAndAnalyzeSentence } from '../services/bedahRuleEngine.js';
 import { QAIDATY_LESSONS } from '../data/qaidatyKnowledge.js';
+import https from 'https';
 
 // ============================================================================
-// OPENROUTER RAW FETCH HELPER
+// OPENROUTER HTTPS HELPER
 // ============================================================================
 
-async function callOpenRouterAPI(
+function callOpenRouterViaHTTPS(
   messages: Array<{ role: string; content: string }>,
   model: string,
-  temperature: number = 0.2
+  temperature: number
 ): Promise<string | null> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey || !apiKey.trim()) {
-    console.warn('[Qaidaty Server] OPENROUTER_API_KEY not configured');
-    return null;
-  }
+  return new Promise((resolve) => {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      console.warn('[Qaidaty Server] No API key');
+      return resolve(null);
+    }
 
-  try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    const payload = JSON.stringify({
+      model,
+      messages,
+      temperature,
+      max_tokens: 1024,
+    });
+
+    const options = {
+      hostname: 'openrouter.ai',
+      port: 443,
+      path: '/api/v1/chat/completions',
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey.trim()}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
         'HTTP-Referer': 'https://e-qaidaty.vercel.app',
         'X-Title': 'e-Qaidaty AI Tutor',
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature,
-        max_tokens: 1024,
-      }),
+      timeout: 55000,
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => (data += chunk));
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          console.warn(`[Qaidaty Server] OpenRouter HTTP ${res.statusCode}`);
+          return resolve(null);
+        }
+        try {
+          const json = JSON.parse(data);
+          const text = json.choices?.[0]?.message?.content;
+          resolve(text || null);
+        } catch (err) {
+          console.warn('[Qaidaty Server] JSON parse error:', err);
+          resolve(null);
+        }
+      });
     });
 
-    if (!response.ok) {
-      console.warn(`[Qaidaty Server] OpenRouter HTTP ${response.status}`);
-      return null;
-    }
+    req.on('error', (err) => {
+      console.warn('[Qaidaty Server] HTTPS error:', err.message);
+      resolve(null);
+    });
 
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || null;
-  } catch (err: any) {
-    console.warn('[Qaidaty Server] OpenRouter call failed:', err?.message);
-    return null;
-  }
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(null);
+    });
+
+    req.write(payload);
+    req.end();
+  });
 }
 
 export interface ChatRequestPayload {
@@ -83,7 +111,7 @@ Berikan penjelasan singkat dan mendalam (2-3 paragraf) dalam bahasa Indonesia te
 3. Makna terjemahan yang tepat sesuai konteks
 Format dengan rapi dan ramah santri.`;
 
-    const aiResponse = await callOpenRouterAPI(
+    const aiResponse = await callOpenRouterViaHTTPS(
       [
         { role: 'system', content: "Anda adalah pakar bahasa Arab dan kurikulum Qaidaty." },
         { role: 'user', content: prompt },
@@ -119,7 +147,7 @@ Kaidah: ${lesson.rules.join('; ')}
 
 Buat dalam format terstruktur sesuai format Rangkuman Guru Qaidaty.`;
 
-    const aiResponse = await callOpenRouterAPI(
+    const aiResponse = await callOpenRouterViaHTTPS(
       [
         { role: 'system', content: "Anda adalah konsultan kurikulum metode Qaidaty untuk para asatidz/guru." },
         { role: 'user', content: prompt },
