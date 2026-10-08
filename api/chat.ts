@@ -9,6 +9,8 @@ async function callOpenRouter(
   temperature = 0.2
 ): Promise<{ text: string | null; usedModel?: string; durationMs: number }> {
   const apiKey = process.env.OPENROUTER_API_KEY;
+  console.log(`[Qaidaty API] DEBUG - apiKey exists: ${!!apiKey}, length: ${apiKey?.length || 0}`);
+  
   if (!apiKey || !apiKey.trim()) {
     console.error('[Qaidaty API] OPENROUTER_API_KEY is not configured');
     return { text: null, durationMs: 0 };
@@ -19,7 +21,8 @@ async function callOpenRouter(
   const MAX_TIMEOUT = 55000; // 55s for Vercel (function timeout is 60s)
 
   try {
-    console.log(`[Qaidaty API] Calling OpenRouter with model: ${model}`);
+    const authHeader = `Bearer ${apiKey.trim()}`;
+    console.log(`[Qaidaty API] Calling OpenRouter with model: ${model}, auth header length: ${authHeader.length}`);
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), MAX_TIMEOUT);
@@ -27,7 +30,7 @@ async function callOpenRouter(
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey.trim()}`,
+        'Authorization': authHeader,
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://e-qaidaty.vercel.app',
         'X-Title': 'e-Qaidaty AI Tutor',
