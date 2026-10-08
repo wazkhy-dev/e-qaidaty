@@ -1,55 +1,56 @@
-import OpenAI from 'openai';
 import { QAIDATY_KNOWLEDGE_CHUNKS, QaidatyChunk } from '../src/data/qaidatyKnowledge.js';
 
 // ============================================================================
-// OPENROUTER CLIENT & GENERATION HELPER
+// OPENROUTER DIRECT API CALL (RAW FETCH)
 // ============================================================================
-let clientInstance: OpenAI | null = null;
-
-function getOpenRouter(): OpenAI | null {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey || !apiKey.trim()) {
-    console.error('[Qaidaty API] OPENROUTER_API_KEY is not configured');
-    return null;
-  }
-  if (!clientInstance) {
-    console.log('[Qaidaty API] Initializing OpenRouter client');
-    clientInstance = new OpenAI({
-      apiKey: apiKey.trim(),
-      baseURL: 'https://openrouter.ai/api/v1',
-      defaultHeaders: {
-        'HTTP-Referer': 'https://e-qaidaty.vercel.app',
-        'X-Title': 'e-Qaidaty AI Tutor',
-        'Authorization': `Bearer ${apiKey.trim()}`,
-      },
-    });
-  }
-  return clientInstance;
-}
 
 async function callOpenRouter(
-  client: OpenAI,
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   temperature = 0.2
 ): Promise<{ text: string | null; usedModel?: string; durationMs: number }> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey || !apiKey.trim()) {
+    console.error('[Qaidaty API] OPENROUTER_API_KEY is not configured');
+    return { text: null, durationMs: 0 };
+  }
+
   const model = (process.env.OPENROUTER_MODEL?.trim()) || 'google/gemini-2.5-flash';
   const startT = Date.now();
   const MAX_TIMEOUT = 55000; // 55s for Vercel (function timeout is 60s)
 
   try {
     console.log(`[Qaidaty API] Calling OpenRouter with model: ${model}`);
-    const completion = await Promise.race([
-      client.chat.completions.create({
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), MAX_TIMEOUT);
+
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey.trim()}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://e-qaidaty.vercel.app',
+        'X-Title': 'e-Qaidaty AI Tutor',
+      },
+      body: JSON.stringify({
         model,
         messages,
         temperature,
         max_tokens: 1024,
-      }) as Promise<any>,
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('OpenRouter API timeout')), MAX_TIMEOUT)
-      ),
-    ]);
-    const text = completion.choices?.[0]?.message?.content;
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      console.error(`[Qaidaty API] OpenRouter HTTP ${response.status}:`, data);
+      return { text: null, durationMs: Date.now() - startT };
+    }
+
+    const text = data.choices?.[0]?.message?.content;
     if (text && text.trim().length > 0) {
       console.log(`[Qaidaty API] OpenRouter success (${Date.now() - startT}ms)`);
       return { text: text.trim(), usedModel: model, durationMs: Date.now() - startT };
@@ -57,10 +58,7 @@ async function callOpenRouter(
   } catch (err: any) {
     console.error(`[Qaidaty API] OpenRouter call FAILED (${Date.now() - startT}ms):`, {
       message: err?.message,
-      code: err?.code,
-      status: err?.status,
-      error: err?.error,
-      fullError: JSON.stringify(err, null, 2),
+      name: err?.name,
     });
   }
   return { text: null, durationMs: Date.now() - startT };
@@ -244,8 +242,8 @@ export async function handleChatPayload(payload: {
     };
   }
 
-  const client = getOpenRouter();
-  if (!client) {
+  // Validate API key (no client instance needed with fetch approach)
+  if (!process.env.OPENROUTER_API_KEY || !process.env.OPENROUTER_API_KEY.trim()) {
     return {
       status: 500,
       data: {
@@ -366,7 +364,7 @@ PANDUAN MERESPONS:
   // Add the current user message
   openAIMessages.push({ role: 'user', content: message.trim() });
 
-  const result = await callOpenRouter(client, openAIMessages, 0.15);
+  const result = await callOpenRouter(openAIMessages, 0.15);
   const totalDuration = Date.now() - startTime;
 
   console.log(
