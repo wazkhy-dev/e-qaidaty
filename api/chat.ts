@@ -14,12 +14,15 @@ function callOpenRouterViaHTTPS(
     const apiKey = process.env.OPENROUTER_API_KEY;
     const startT = Date.now();
 
-    console.log(`[Qaidaty API] Calling OpenRouter via HTTPS with model: ${model}, apiKey length: ${apiKey?.length || 0}`);
-
-    if (!apiKey) {
-      console.error('[Qaidaty API] No API key');
+    // CRITICAL: Log only key length for verification, never the actual key
+    if (!apiKey || apiKey.trim().length === 0) {
+      console.error('[Qaidaty API] CRITICAL: OPENROUTER_API_KEY is missing or empty');
+      console.error('[Qaidaty API] Available env vars:', Object.keys(process.env).filter(k => k.includes('OPENROUTER')));
       return resolve({ text: null, durationMs: Date.now() - startT });
     }
+
+    console.log(`[Qaidaty API] ✓ OPENROUTER_API_KEY present (length: ${apiKey.length})`);
+    console.log(`[Qaidaty API] ✓ Using model: ${model}`);
 
     const payload = JSON.stringify({
       model,
@@ -28,13 +31,15 @@ function callOpenRouterViaHTTPS(
       max_tokens: 1024,
     });
 
+    const authHeader = `Bearer ${apiKey}`;
+    
     const options = {
       hostname: 'openrouter.ai',
       port: 443,
       path: '/api/v1/chat/completions',
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': authHeader,
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
         'HTTP-Referer': 'https://e-qaidaty.vercel.app',
@@ -43,10 +48,10 @@ function callOpenRouterViaHTTPS(
       timeout: 55000,
     };
 
-    console.log(`[Qaidaty API] HTTPS headers:`, {
-      'Authorization': `Bearer ${apiKey.substring(0, 10)}...`,
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(payload),
+    console.log(`[Qaidaty API] ✓ Request headers configured:`, {
+      'Authorization': `Bearer ${apiKey.substring(0, 20)}...${apiKey.substring(apiKey.length - 5)}`,
+      'Content-Type': options.headers['Content-Type'],
+      'Content-Length': options.headers['Content-Length'],
     });
 
     const req = https.request(options, (res) => {
@@ -57,33 +62,39 @@ function callOpenRouterViaHTTPS(
       });
 
       res.on('end', () => {
-        console.log(`[Qaidaty API] OpenRouter response status: ${res.statusCode}`);
+        console.log(`[Qaidaty API] OpenRouter HTTP ${res.statusCode}`);
         if (res.statusCode !== 200) {
-          console.error(`[Qaidaty API] OpenRouter error (${res.statusCode}):`, data);
+          console.error(`[Qaidaty API] ERROR: OpenRouter rejected request (HTTP ${res.statusCode})`);
+          try {
+            const errorData = JSON.parse(data);
+            console.error(`[Qaidaty API] Error response:`, errorData);
+          } catch (e) {
+            console.error(`[Qaidaty API] Raw response:`, data.substring(0, 200));
+          }
           return resolve({ text: null, durationMs: Date.now() - startT });
         }
 
         try {
           const json = JSON.parse(data);
           const text = json.choices?.[0]?.message?.content;
-          if (text) {
-            console.log(`[Qaidaty API] Success: got response (${Date.now() - startT}ms)`);
+          if (text && text.trim().length > 0) {
+            console.log(`[Qaidaty API] ✓ SUCCESS: OpenRouter returned content (${Date.now() - startT}ms)`);
             return resolve({ text: text.trim(), durationMs: Date.now() - startT });
           }
         } catch (err) {
-          console.error('[Qaidaty API] Failed to parse JSON:', err);
+          console.error('[Qaidaty API] JSON parse error:', err instanceof Error ? err.message : err);
         }
         resolve({ text: null, durationMs: Date.now() - startT });
       });
     });
 
     req.on('error', (err) => {
-      console.error('[Qaidaty API] HTTPS request error:', err.message);
+      console.error('[Qaidaty API] HTTPS socket error:', err.message);
       resolve({ text: null, durationMs: Date.now() - startT });
     });
 
     req.on('timeout', () => {
-      console.error('[Qaidaty API] HTTPS request timeout');
+      console.error('[Qaidaty API] HTTPS request timeout (55s exceeded)');
       req.destroy();
       resolve({ text: null, durationMs: Date.now() - startT });
     });
@@ -271,26 +282,28 @@ export async function handleChatPayload(payload: {
     };
   }
 
-  // Validate API key (no client instance needed with fetch approach)
-  console.log(`[Qaidaty API] handleChatPayload - checking OPENROUTER_API_KEY`);
-  console.log(`[Qaidaty API] ENV VARS: OPENROUTER_API_KEY=${process.env.OPENROUTER_API_KEY ? 'SET (len:' + process.env.OPENROUTER_API_KEY.length + ')' : 'MISSING'}`);
-  console.log(`[Qaidaty API] ENV VARS: OPENROUTER_MODEL=${process.env.OPENROUTER_MODEL || 'MISSING'}`);
+  // ============================================================================
+  // CRITICAL: Validate OPENROUTER_API_KEY before any API calls
+  // ============================================================================
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  const model = process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
   
-  if (!process.env.OPENROUTER_API_KEY || !process.env.OPENROUTER_API_KEY.trim()) {
-    console.error(`[Qaidaty API] OPENROUTER_API_KEY is NOT configured!`);
+  console.log(`[Qaidaty API] ═══════════════════════════════════════════`);
+  console.log(`[Qaidaty API] REQUEST VALIDATION`);
+  console.log(`[Qaidaty API] OPENROUTER_API_KEY: ${apiKey ? `✓ SET (${apiKey.length} chars)` : '✗ MISSING'}`);
+  console.log(`[Qaidaty API] OPENROUTER_MODEL: ${model}`);
+  console.log(`[Qaidaty API] ═══════════════════════════════════════════`);
+
+  if (!apiKey || apiKey.trim().length === 0) {
+    console.error(`[Qaidaty API] CRITICAL ERROR: OPENROUTER_API_KEY is not configured`);
     return {
       status: 500,
       data: {
         success: false,
-        error:
-          'OPENROUTER_API_KEY belum dikonfigurasi di Environment Variables Vercel. Silakan tambahkan OPENROUTER_API_KEY pada menu Settings -> Environment Variables di Dashboard Vercel.',
+        error: 'Konfigurasi OpenRouter API belum lengkap. Hubungi administrator untuk setup environment variables di Vercel.',
       },
     };
   }
-  console.log(`[Qaidaty API] OPENROUTER_API_KEY is configured, proceeding...`);
-  
-  const model = (process.env.OPENROUTER_MODEL?.trim()) || 'google/gemini-2.5-flash';
-  console.log(`[Qaidaty API] Using model: ${model}`);
 
   // 1. RAG context selection with smart intent filter — searches the FULL
   // Bab 01–23 knowledge base every time; never assumes Bab 01 as a default.

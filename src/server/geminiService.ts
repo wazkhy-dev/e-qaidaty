@@ -14,8 +14,9 @@ function callOpenRouterViaHTTPS(
 ): Promise<string | null> {
   return new Promise((resolve) => {
     const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) {
-      console.warn('[Qaidaty Server] No API key');
+    
+    if (!apiKey || apiKey.trim().length === 0) {
+      console.warn('[Qaidaty Server] OPENROUTER_API_KEY not configured');
       return resolve(null);
     }
 
@@ -26,13 +27,15 @@ function callOpenRouterViaHTTPS(
       max_tokens: 1024,
     });
 
+    const authHeader = `Bearer ${apiKey}`;
+    
     const options = {
       hostname: 'openrouter.ai',
       port: 443,
       path: '/api/v1/chat/completions',
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': authHeader,
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
         'HTTP-Referer': 'https://e-qaidaty.vercel.app',
@@ -54,7 +57,7 @@ function callOpenRouterViaHTTPS(
           const text = json.choices?.[0]?.message?.content;
           resolve(text || null);
         } catch (err) {
-          console.warn('[Qaidaty Server] JSON parse error:', err);
+          console.warn('[Qaidaty Server] JSON parse error:', err instanceof Error ? err.message : err);
           resolve(null);
         }
       });
