@@ -9,20 +9,25 @@ function callOpenRouterViaHTTPS(
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   model: string,
   temperature: number
-): Promise<{ text: string | null; durationMs: number }> {
+): Promise<{ text: string | null; statusCode: number | null; error: string | null; durationMs: number }> {
   return new Promise((resolve) => {
     const apiKey = process.env.OPENROUTER_API_KEY;
     const startT = Date.now();
 
-    // CRITICAL: Log only key length for verification, never the actual key
-    if (!apiKey || apiKey.trim().length === 0) {
-      console.error('[Qaidaty API] CRITICAL: OPENROUTER_API_KEY is missing or empty');
-      console.error('[Qaidaty API] Available env vars:', Object.keys(process.env).filter(k => k.includes('OPENROUTER')));
-      return resolve({ text: null, durationMs: Date.now() - startT });
-    }
+    // Audit: Check API key
+    const apiKeyConfigured = !!apiKey && apiKey.trim().length > 0;
+    console.log(`[Qaidaty API] API key configured: ${apiKeyConfigured}`);
+    console.log(`[Qaidaty API] Model: ${model}`);
 
-    console.log(`[Qaidaty API] ✓ OPENROUTER_API_KEY present (length: ${apiKey.length})`);
-    console.log(`[Qaidaty API] ✓ Using model: ${model}`);
+    if (!apiKeyConfigured) {
+      console.error('[Qaidaty API] ERROR: OPENROUTER_API_KEY missing or empty');
+      return resolve({ 
+        text: null, 
+        statusCode: null, 
+        error: 'OPENROUTER_API_KEY not configured',
+        durationMs: Date.now() - startT 
+      });
+    }
 
     const payload = JSON.stringify({
       model,
@@ -31,15 +36,13 @@ function callOpenRouterViaHTTPS(
       max_tokens: 1024,
     });
 
-    const authHeader = `Bearer ${apiKey}`;
-    
     const options = {
       hostname: 'openrouter.ai',
       port: 443,
       path: '/api/v1/chat/completions',
       method: 'POST',
       headers: {
-        'Authorization': authHeader,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
         'HTTP-Referer': 'https://e-qaidaty.vercel.app',
@@ -47,12 +50,6 @@ function callOpenRouterViaHTTPS(
       },
       timeout: 55000,
     };
-
-    console.log(`[Qaidaty API] ✓ Request headers configured:`, {
-      'Authorization': `Bearer ${apiKey.substring(0, 20)}...${apiKey.substring(apiKey.length - 5)}`,
-      'Content-Type': options.headers['Content-Type'],
-      'Content-Length': options.headers['Content-Length'],
-    });
 
     const req = https.request(options, (res) => {
       let data = '';
@@ -62,41 +59,83 @@ function callOpenRouterViaHTTPS(
       });
 
       res.on('end', () => {
-        console.log(`[Qaidaty API] OpenRouter HTTP ${res.statusCode}`);
-        if (res.statusCode !== 200) {
-          console.error(`[Qaidaty API] ERROR: OpenRouter rejected request (HTTP ${res.statusCode})`);
+        const statusCode = res.statusCode || 0;
+        console.log(`[Qaidaty API] OpenRouter response status: ${statusCode}`);
+
+        // Success case
+        if (statusCode === 200) {
           try {
-            const errorData = JSON.parse(data);
-            console.error(`[Qaidaty API] Error response:`, errorData);
-          } catch (e) {
-            console.error(`[Qaidaty API] Raw response:`, data.substring(0, 200));
+            const json = JSON.parse(data);
+            const text = json.choices?.[0]?.message?.content;
+            if (text && text.trim().length > 0) {
+              console.log(`[Qaidaty API] ✓ Response parsed successfully (${Date.now() - startT}ms)`);
+              return resolve({ 
+                text: text.trim(),
+                statusCode,
+                error: null,
+                durationMs: Date.now() - startT 
+              });
+            } else {
+              console.error('[Qaidaty API] ERROR: No text content in choices[0].message.content');
+              return resolve({ 
+                text: null,
+                statusCode,
+                error: 'Empty response from OpenRouter',
+                durationMs: Date.now() - startT 
+              });
+            }
+          } catch (parseErr) {
+            const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+            console.error(`[Qaidaty API] ERROR: JSON parse failed: ${msg}`);
+            return resolve({ 
+              text: null,
+              statusCode,
+              error: `JSON parse error: ${msg}`,
+              durationMs: Date.now() - startT 
+            });
           }
-          return resolve({ text: null, durationMs: Date.now() - startT });
         }
 
+        // Error case - preserve original status code
+        console.error(`[Qaidaty API] OpenRouter error response (HTTP ${statusCode})`);
+        let errorMsg = `HTTP ${statusCode}`;
         try {
-          const json = JSON.parse(data);
-          const text = json.choices?.[0]?.message?.content;
-          if (text && text.trim().length > 0) {
-            console.log(`[Qaidaty API] ✓ SUCCESS: OpenRouter returned content (${Date.now() - startT}ms)`);
-            return resolve({ text: text.trim(), durationMs: Date.now() - startT });
-          }
-        } catch (err) {
-          console.error('[Qaidaty API] JSON parse error:', err instanceof Error ? err.message : err);
+          const errorData = JSON.parse(data);
+          errorMsg = errorData.error?.message || errorData.message || errorMsg;
+          console.error(`[Qaidaty API] Error details:`, errorData);
+        } catch (e) {
+          console.error(`[Qaidaty API] Raw response (first 300 chars):`, data.substring(0, 300));
         }
-        resolve({ text: null, durationMs: Date.now() - startT });
+
+        resolve({ 
+          text: null,
+          statusCode,
+          error: errorMsg,
+          durationMs: Date.now() - startT 
+        });
       });
     });
 
     req.on('error', (err) => {
-      console.error('[Qaidaty API] HTTPS socket error:', err.message);
-      resolve({ text: null, durationMs: Date.now() - startT });
+      const msg = err.message || String(err);
+      console.error(`[Qaidaty API] HTTPS socket error: ${msg}`);
+      resolve({ 
+        text: null,
+        statusCode: null,
+        error: `Network error: ${msg}`,
+        durationMs: Date.now() - startT 
+      });
     });
 
     req.on('timeout', () => {
-      console.error('[Qaidaty API] HTTPS request timeout (55s exceeded)');
+      console.error('[Qaidaty API] HTTPS timeout (>55s)');
       req.destroy();
-      resolve({ text: null, durationMs: Date.now() - startT });
+      resolve({ 
+        text: null,
+        statusCode: 408,
+        error: 'Request timeout',
+        durationMs: Date.now() - startT 
+      });
     });
 
     req.write(payload);
@@ -419,16 +458,21 @@ PANDUAN MERESPONS:
   const totalDuration = Date.now() - startTime;
 
   console.log(
-    `[Qaidaty AI Log] Query: "${message.slice(0, 30)}..." | Bab used: [${activeChunks.map((c) => c.babNumber).join(', ') || 'none'}] | notFound: ${notFound} | RAG: ${tRag}ms | OpenRouter (${result.usedModel || 'failed'}): ${result.durationMs}ms | Total: ${totalDuration}ms`
+    `[Qaidaty AI Log] Query: "${message.slice(0, 30)}..." | Bab used: [${activeChunks.map((c) => c.babNumber).join(', ') || 'none'}] | notFound: ${notFound} | RAG: ${tRag}ms | OpenRouter: status=${result.statusCode}, duration=${result.durationMs}ms, total=${totalDuration}ms`
   );
 
   if (!result.text) {
+    // Preserve original OpenRouter status code, with fallback for network errors
+    const statusCode = result.statusCode || 503;
+    const errorMsg = result.error || 'Unknown error from OpenRouter';
+    
+    console.error(`[Qaidaty API] Final error response: status=${statusCode}, error=${errorMsg}`);
+    
     return {
-      status: 503,
+      status: statusCode,
       data: {
         success: false,
-        error:
-          'Layanan AI OpenRouter saat ini sedang mengalami lonjakan trafik atau kendala kuota. Mohon coba beberapa saat lagi.',
+        error: `OpenRouter request failed: ${errorMsg}`,
       },
     };
   }
