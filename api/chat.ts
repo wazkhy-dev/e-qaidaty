@@ -246,7 +246,12 @@ export async function handleChatPayload(payload: {
   }
 
   // Validate API key (no client instance needed with fetch approach)
+  console.log(`[Qaidaty API] handleChatPayload - checking OPENROUTER_API_KEY`);
+  console.log(`[Qaidaty API] ENV VARS: OPENROUTER_API_KEY=${process.env.OPENROUTER_API_KEY ? 'SET (len:' + process.env.OPENROUTER_API_KEY.length + ')' : 'MISSING'}`);
+  console.log(`[Qaidaty API] ENV VARS: OPENROUTER_MODEL=${process.env.OPENROUTER_MODEL || 'MISSING'}`);
+  
   if (!process.env.OPENROUTER_API_KEY || !process.env.OPENROUTER_API_KEY.trim()) {
+    console.error(`[Qaidaty API] OPENROUTER_API_KEY is NOT configured!`);
     return {
       status: 500,
       data: {
@@ -256,6 +261,7 @@ export async function handleChatPayload(payload: {
       },
     };
   }
+  console.log(`[Qaidaty API] OPENROUTER_API_KEY is configured, proceeding...`);
 
   // 1. RAG context selection with smart intent filter — searches the FULL
   // Bab 01–23 knowledge base every time; never assumes Bab 01 as a default.
