@@ -9,9 +9,11 @@ let clientInstance: OpenAI | null = null;
 function getOpenRouter(): OpenAI | null {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey || !apiKey.trim()) {
+    console.error('[Qaidaty API] OPENROUTER_API_KEY is not configured');
     return null;
   }
   if (!clientInstance) {
+    console.log('[Qaidaty API] Initializing OpenRouter client');
     clientInstance = new OpenAI({
       apiKey: apiKey.trim(),
       baseURL: 'https://openrouter.ai/api/v1',
@@ -35,6 +37,7 @@ async function callOpenRouter(
   const MAX_TIMEOUT = 55000; // 55s for Vercel (function timeout is 60s)
 
   try {
+    console.log(`[Qaidaty API] Calling OpenRouter with model: ${model}`);
     const completion = await Promise.race([
       client.chat.completions.create({
         model,
@@ -48,10 +51,17 @@ async function callOpenRouter(
     ]);
     const text = completion.choices?.[0]?.message?.content;
     if (text && text.trim().length > 0) {
+      console.log(`[Qaidaty API] OpenRouter success (${Date.now() - startT}ms)`);
       return { text: text.trim(), usedModel: model, durationMs: Date.now() - startT };
     }
   } catch (err: any) {
-    console.warn(`[Qaidaty API] OpenRouter call failed:`, err?.message || err);
+    console.error(`[Qaidaty API] OpenRouter call FAILED (${Date.now() - startT}ms):`, {
+      message: err?.message,
+      code: err?.code,
+      status: err?.status,
+      error: err?.error,
+      fullError: JSON.stringify(err, null, 2),
+    });
   }
   return { text: null, durationMs: Date.now() - startT };
 }
