@@ -1,69 +1,57 @@
-import { GoogleGenAI } from '@google/genai';
+import OpenAI from 'openai';
 import { QAIDATY_KNOWLEDGE_CHUNKS, QaidatyChunk } from '../src/data/qaidatyKnowledge.js';
 
 // ============================================================================
-// GEMINI CLIENT & GENERATION HELPER
+// OPENROUTER CLIENT & GENERATION HELPER
 // ============================================================================
-let clientInstance: GoogleGenAI | null = null;
+let clientInstance: OpenAI | null = null;
 
-function getGenAI(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
+function getOpenRouter(): OpenAI | null {
+  const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey || !apiKey.trim()) {
     return null;
   }
   if (!clientInstance) {
-    clientInstance = new GoogleGenAI({
+    clientInstance = new OpenAI({
       apiKey: apiKey.trim(),
+      baseURL: 'https://openrouter.ai/api/v1',
+      defaultHeaders: {
+        'HTTP-Referer': 'https://e-qaidaty.vercel.app',
+        'X-Title': 'e-Qaidaty AI Tutor',
+      },
     });
   }
   return clientInstance;
 }
 
-async function callGemini(
-  ai: GoogleGenAI,
-  contents: any,
-  systemInstruction: string,
+async function callOpenRouter(
+  client: OpenAI,
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   temperature = 0.2
 ): Promise<{ text: string | null; usedModel?: string; durationMs: number }> {
-  const preferredModel = process.env.GEMINI_MODEL?.trim();
-  const models = preferredModel
-    ? [preferredModel, 'gemini-3.5-sonnet', 'gemini-3.7-flash', 'gemini-flash-latest']
-    : ['gemini-3.5-sonnet', 'gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
-
+  const model = (process.env.OPENROUTER_MODEL?.trim()) || 'google/gemini-2.5-flash';
   const startT = Date.now();
-  const MAX_TIMEOUT = 30000; // 30 second timeout for Vercel
+  const MAX_TIMEOUT = 55000; // 55s for Vercel (function timeout is 60s)
 
-  for (const model of models) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), MAX_TIMEOUT);
-
-      const resp = await Promise.race([
-        ai.models.generateContent({
-          model,
-          contents,
-          config: {
-            systemInstruction,
-            temperature,
-            maxOutputTokens: 1024, // Limit output to speed up response
-          },
-        }),
-        new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Gemini API timeout')), MAX_TIMEOUT);
-        })
-      ]);
-
-      clearTimeout(timeoutId);
-
-      if (resp?.text && resp.text.trim().length > 0) {
-        const dur = Date.now() - startT;
-        return { text: resp.text, usedModel: model, durationMs: dur };
-      }
-    } catch (err: any) {
-      console.warn(`[Qaidaty API] Model ${model} failed or timed out. Error:`, err?.message || err);
+  try {
+    const completion = await Promise.race([
+      client.chat.completions.create({
+        model,
+        messages,
+        temperature,
+        max_tokens: 1024,
+      }) as Promise<any>,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('OpenRouter API timeout')), MAX_TIMEOUT)
+      ),
+    ]);
+    const text = completion.choices?.[0]?.message?.content;
+    if (text && text.trim().length > 0) {
+      return { text: text.trim(), usedModel: model, durationMs: Date.now() - startT };
     }
+  } catch (err: any) {
+    console.warn(`[Qaidaty API] OpenRouter call failed:`, err?.message || err);
   }
-
   return { text: null, durationMs: Date.now() - startT };
 }
 
@@ -245,14 +233,14 @@ export async function handleChatPayload(payload: {
     };
   }
 
-  const ai = getGenAI();
-  if (!ai) {
+  const client = getOpenRouter();
+  if (!client) {
     return {
       status: 500,
       data: {
         success: false,
         error:
-          'GEMINI_API_KEY belum dikonfigurasi di Environment Variables Vercel. Silakan tambahkan GEMINI_API_KEY pada menu Settings -> Environment Variables di Dashboard Vercel.',
+          'OPENROUTER_API_KEY belum dikonfigurasi di Environment Variables Vercel. Silakan tambahkan OPENROUTER_API_KEY pada menu Settings -> Environment Variables di Dashboard Vercel.',
       },
     };
   }
@@ -350,33 +338,28 @@ PANDUAN MERESPONS:
     ? chatHistory
     : [];
 
-  const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
-
+  // Build OpenAI-compatible messages array
+  const openAIMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+    { role: 'system', content: systemInstruction },
+  ];
+  // Add chat history (last 4 turns already trimmed for latency)
   const trimmedHistory = rawHistory.slice(-4);
   for (const turn of trimmedHistory) {
     if (turn && turn.content && typeof turn.content === 'string' && turn.content.trim()) {
-      const role =
-        turn.role === 'ai' || turn.role === 'assistant' || turn.role === 'model'
-          ? 'model'
-          : 'user';
-      contents.push({
-        role,
-        parts: [{ text: turn.content.trim() }],
-      });
+      const role = (turn.role === 'ai' || turn.role === 'assistant' || turn.role === 'model')
+        ? 'assistant'
+        : 'user';
+      openAIMessages.push({ role, content: turn.content.trim() });
     }
   }
+  // Add the current user message
+  openAIMessages.push({ role: 'user', content: message.trim() });
 
-  // Add user prompt
-  contents.push({
-    role: 'user',
-    parts: [{ text: message.trim() }],
-  });
-
-  const result = await callGemini(ai, contents, systemInstruction, 0.15);
+  const result = await callOpenRouter(client, openAIMessages, 0.15);
   const totalDuration = Date.now() - startTime;
 
   console.log(
-    `[Qaidaty AI Log] Query: "${message.slice(0, 30)}..." | Bab used: [${activeChunks.map((c) => c.babNumber).join(', ') || 'none'}] | notFound: ${notFound} | RAG: ${tRag}ms | Gemini (${result.usedModel || 'failed'}): ${result.durationMs}ms | Total: ${totalDuration}ms`
+    `[Qaidaty AI Log] Query: "${message.slice(0, 30)}..." | Bab used: [${activeChunks.map((c) => c.babNumber).join(', ') || 'none'}] | notFound: ${notFound} | RAG: ${tRag}ms | OpenRouter (${result.usedModel || 'failed'}): ${result.durationMs}ms | Total: ${totalDuration}ms`
   );
 
   if (!result.text) {
@@ -385,7 +368,7 @@ PANDUAN MERESPONS:
       data: {
         success: false,
         error:
-          'Layanan AI Gemini saat ini sedang mengalami lonjakan trafik atau kendala kuota. Mohon coba beberapa saat lagi.',
+          'Layanan AI OpenRouter saat ini sedang mengalami lonjakan trafik atau kendala kuota. Mohon coba beberapa saat lagi.',
       },
     };
   }

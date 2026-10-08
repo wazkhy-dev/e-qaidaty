@@ -16,12 +16,12 @@ async function startServer() {
 
   // 1. Health check
   app.get('/api/health', (req, res) => {
-    const isKeyConfigured = Boolean(process.env.GEMINI_API_KEY?.trim());
+    const isKeyConfigured = Boolean(process.env.OPENROUTER_API_KEY?.trim());
     res.json({
       status: 'ok',
       service: 'QAIDATY API',
       aiReady: isKeyConfigured,
-      geminiKeyConfigured: isKeyConfigured,
+      openrouterKeyConfigured: isKeyConfigured,
       totalLessons: QAIDATY_LESSONS.length,
     });
   });

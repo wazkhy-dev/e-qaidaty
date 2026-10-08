@@ -7,13 +7,13 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
-  const isKeyConfigured = Boolean(process.env.GEMINI_API_KEY?.trim());
+  const isKeyConfigured = Boolean(process.env.OPENROUTER_API_KEY?.trim());
 
   return res.status(200).json({
     status: 'ok',
     service: 'QAIDATY API (Vercel Serverless)',
     aiReady: isKeyConfigured,
-    geminiKeyConfigured: isKeyConfigured,
+    openrouterKeyConfigured: isKeyConfigured,
     totalLessons: 23,
     environment: process.env.VERCEL ? 'vercel' : 'node',
   });

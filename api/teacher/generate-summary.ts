@@ -1,4 +1,4 @@
-import { processTeacherSummary } from '../src/server/geminiService.js';
+import { processTeacherSummary } from '../../src/server/geminiService.js';
 
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');

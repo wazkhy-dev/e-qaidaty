@@ -48,7 +48,7 @@ export async function askAITutor(
     }
     if (res.status === 401 || res.status === 403) {
       throw new Error(
-        'Akses API ditolak (401/403). Periksa GEMINI_API_KEY di environment variables Vercel.'
+        'Akses API ditolak (401/403). Periksa OPENROUTER_API_KEY di environment variables Vercel.'
       );
     }
     if (res.status === 429) {
